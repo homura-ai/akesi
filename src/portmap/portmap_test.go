@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"maps"
 	"net"
 	"net/netip"
 	"sync"
@@ -46,9 +47,7 @@ func (g *fakeGateway) active() map[uint16]uint32 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	active := make(map[uint16]uint32, len(g.mappings))
-	for port, lifetime := range g.mappings {
-		active[port] = lifetime
-	}
+	maps.Copy(active, g.mappings)
 	return active
 }
 
