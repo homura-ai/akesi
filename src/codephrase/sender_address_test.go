@@ -50,6 +50,7 @@ func TestSplitSenderAddressLeavesOtherCodesUnchanged(t *testing.T) {
 		"bacon-pickle-trout",
 		"1234-my-custom-code",
 		"me@example-dot-com",
+		"custom@acid",
 		"@leading-separator",
 		"trailing-separator@",
 	} {

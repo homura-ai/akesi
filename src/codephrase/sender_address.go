@@ -52,6 +52,9 @@ func SplitSenderAddress(code string) (plain string, addr netip.AddrPort, ok bool
 			plain, err = decodeInvitationSecret(plain)
 		}
 	} else {
+		if !strings.Contains(suffix, "-") {
+			return code, netip.AddrPort{}, false, nil
+		}
 		data, err = mnemonicode.DecodeWordList(nil, strings.Split(suffix, "-"))
 	}
 	if err != nil {
