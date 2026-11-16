@@ -305,6 +305,42 @@ func TestFinishingVersionCheckNeverWaitsForNetwork(t *testing.T) {
 	}
 }
 
+func TestFinishingVersionCheckPreventsLateCacheWrite(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{}, 1)
+	defer close(release)
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		close(started)
+		<-request.Context().Done()
+		<-release
+		return nil, request.Context().Err()
+	})}
+	cachePath := filepath.Join(t.TempDir(), versionCheckCacheName)
+	checker := transferVersionChecker{
+		cachePath:      cachePath,
+		currentVersion: "11.2.2",
+		endpoint:       "https://example.test/latest",
+		client:         client,
+		now:            time.Now,
+		timeout:        time.Second,
+	}
+	handle := checker.start(context.Background(), true)
+	defer handle.cancel()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("version check did not start")
+	}
+	if _, ready := handle.finish(); ready {
+		t.Fatal("unfinished check unexpectedly had a result")
+	}
+	release <- struct{}{}
+	awaitVersionCheck(t, handle)
+	if _, err := os.Stat(cachePath); !os.IsNotExist(err) {
+		t.Fatalf("cache written after finish: %v", err)
+	}
+}
+
 func TestCROCDoCheckRequiresExactValue(t *testing.T) {
 	for _, test := range []struct {
 		value string
