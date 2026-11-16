@@ -93,6 +93,8 @@ function runCroc(
       ...process.env,
       CROC_CONFIG_DIR: configDirectory,
       CROC_SECRET: secret,
+      // Direct WebRTC transfers use host candidates only.
+      CROC_STUN: "none",
       ...extraEnvironment,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -873,6 +875,34 @@ for (const secret of [
   });
 }
 
+test("CLI → Web transfers directly with a zero direct threshold", async ({ page }, testInfo) => {
+  const fixtures = await createFixtures(testInfo);
+  const configDirectory = testInfo.outputPath("croc-config");
+  const secret = "webrtc-direct-threshold";
+  await fs.mkdir(configDirectory, { recursive: true });
+  await configurePage(page);
+  await page.goto(`/?code=${encodeURIComponent(secret)}`);
+  const receivePanel = page.locator(".receive-panel");
+  const cli = runCroc(
+    ["--debug", ...commonCLIArgs(), "send", "--no-local", "--direct-threshold", "0", ...fixtures.paths],
+    secret,
+    configDirectory,
+  );
+  try {
+    const downloads = await acceptAsDownloads(page, receivePanel);
+    await expect(receivePanel).toContainText("All files received and verified", {
+      timeout: transferTimeout,
+    });
+    await cli.done;
+    await expectDownloads(downloads, fixtures);
+    expect(cli.output()).toContain("selected WebRTC data transport");
+    expect(cli.output()).not.toContain("selected croc relay data transport");
+  } finally {
+    cli.stop();
+    await cli.done.catch(() => undefined);
+  }
+});
+
 test("CLI → Web preserves nested directory destinations and empty folders", async ({
   page,
 }, info) => {
@@ -1043,6 +1073,37 @@ test("Web → CLI transfers and verifies multiple files", async ({
     await cli.done;
     await metricsVisible;
     await expectDirectory(destination, fixtures);
+  } finally {
+    cli.stop();
+    await cli.done.catch(() => undefined);
+  }
+});
+
+test("Web → CLI transfers directly over WebRTC", async ({ page }, testInfo) => {
+  const fixtures = await createFixtures(testInfo);
+  const destination = testInfo.outputPath("received");
+  const configDirectory = testInfo.outputPath("croc-config");
+  await Promise.all([
+    fs.mkdir(destination, { recursive: true }),
+    fs.mkdir(configDirectory, { recursive: true }),
+  ]);
+  await configurePage(page);
+  const sendPanel = await prepareWebSender(page, fixtures);
+  await sendPanel.getByRole("button", { name: "Send 3 files" }).click();
+  const secret = await readGeneratedSecret(sendPanel);
+  const cli = runCroc(
+    ["--debug", ...commonCLIArgs(), "--out", destination],
+    secret,
+    configDirectory,
+  );
+  try {
+    await expect(sendPanel).toContainText("All files arrived safely", {
+      timeout: transferTimeout,
+    });
+    await cli.done;
+    await expectDirectory(destination, fixtures);
+    expect(cli.output()).toContain("selected WebRTC data transport");
+    expect(cli.output()).not.toContain("selected croc relay data transport");
   } finally {
     cli.stop();
     await cli.done.catch(() => undefined);
