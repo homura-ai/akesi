@@ -150,7 +150,16 @@ const (
 	TransportAuto  TransportMode = "auto"
 	TransportDERP  TransportMode = "derp"
 	TransportRelay TransportMode = "relay"
+	// TransportDirect requires Tailcat and sends file data only after the
+	// path to the receiver is direct, never through DERP or the croc relay.
+	// The handshake and control messages may still use the relay.
+	TransportDirect TransportMode = "direct"
 )
+
+// requiresTailcat reports whether mode forbids croc-relay file data.
+func (mode TransportMode) requiresTailcat() bool {
+	return mode == TransportDERP || mode == TransportDirect
+}
 
 // ParseTransportMode validates and normalizes a transport name. An empty value
 // is the API-compatible spelling of the default auto mode.
@@ -160,30 +169,38 @@ func ParseTransportMode(value string) (TransportMode, error) {
 		mode = TransportAuto
 	}
 	switch mode {
-	case TransportAuto, TransportDERP, TransportRelay:
+	case TransportAuto, TransportDERP, TransportRelay, TransportDirect:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("invalid transport %q (choose auto, derp, or relay)", value)
+		return "", fmt.Errorf("invalid transport %q (choose auto, derp, direct, or relay)", value)
 	}
 }
 
-func resolveTransportMode(mode TransportMode, tailcatAvailable bool) (effective TransportMode, downgraded bool) {
-	if mode == TransportDERP && !tailcatAvailable {
-		return TransportRelay, true
+var errDirectUnavailable = errors.New("--transport direct requires Tailcat, which this croc build does not include")
+
+func resolveTransportMode(mode TransportMode, tailcatAvailable bool) (effective TransportMode, downgraded bool, err error) {
+	if tailcatAvailable {
+		return mode, false, nil
 	}
-	return mode, false
+	switch mode {
+	case TransportDERP:
+		return TransportRelay, true, nil
+	case TransportDirect:
+		return "", false, errDirectUnavailable
+	}
+	return mode, false, nil
 }
 
 // ResolveTransportMode validates a transport name and resolves it against the
-// capabilities compiled into this binary. Relay-only builds downgrade strict
-// Tailcat requests to the croc relay and report that choice to the caller.
+// capabilities compiled into this binary. Relay-only builds downgrade
+// --transport derp to the croc relay and report that choice to the caller;
+// --transport direct is rejected because it must never relay file data.
 func ResolveTransportMode(value string) (effective TransportMode, downgraded bool, err error) {
 	mode, err := ParseTransportMode(value)
 	if err != nil {
 		return "", false, err
 	}
-	effective, downgraded = resolveTransportMode(mode, tailcattransport.Available())
-	return effective, downgraded, nil
+	return resolveTransportMode(mode, tailcattransport.Available())
 }
 
 type SimpleMessage struct {
@@ -316,9 +333,15 @@ type Client struct {
 	relayStandbyReady        bool
 	stagedRelayDelayOverride time.Duration
 	stagedSelectionOverride  time.Duration
-	senderRouteWaitOverride  time.Duration
-	localIPLookup            func() ([]string, error)
-	relayDataOpen            func(*transferAttemptState, []int, bool) error
+	directPathPollOverride   time.Duration
+	// sendingFileData is set while the sender streams an approved file, so
+	// the --transport direct guard ignores idle time such as the --ask
+	// prompt.
+	sendingFileData         atomic.Bool
+	directPathGraceOverride time.Duration
+	senderRouteWaitOverride time.Duration
+	localIPLookup           func() ([]string, error)
+	relayDataOpen           func(*transferAttemptState, []int, bool) error
 
 	// ctx.go for graceful shutdown
 	*stop
@@ -400,6 +423,9 @@ var (
 	// ErrDERPConnection is the compatibility sentinel for failures in the
 	// Tailcat-backed data path selected by --transport derp.
 	ErrDERPConnection = errors.New("DERP connection failed")
+	// ErrDirectPath marks a --transport direct transfer that stopped because
+	// no direct path to the peer existed, or the direct path was lost.
+	ErrDirectPath = errors.New("no direct path to peer")
 )
 
 func supportsFeature(features []string, wanted string) bool {
@@ -429,7 +455,10 @@ func newClient(ops Options, transport tailcatDataTransport) (c *Client, err erro
 	if err != nil {
 		return nil, err
 	}
-	c.Options.Transport, _ = resolveTransportMode(c.Options.Transport, c.dataTransport().Available())
+	c.Options.Transport, _, err = resolveTransportMode(c.Options.Transport, c.dataTransport().Available())
+	if err != nil {
+		return nil, err
+	}
 	if !c.Options.IsSender && c.Options.Transport != TransportAuto {
 		return nil, errors.New("transport selection is sender-only")
 	}
@@ -440,9 +469,9 @@ func newClient(ops Options, transport tailcatDataTransport) (c *Client, err erro
 	if c.Options.Transport != TransportAuto && c.Options.OnlyLocal {
 		return nil, errors.New("--transport cannot be combined with --local unless it is auto")
 	}
-	if c.Options.Transport == TransportDERP {
+	if c.Options.Transport.requiresTailcat() {
 		if c.Options.ShowQrCode {
-			return nil, errors.New("--transport derp cannot be combined with --qrcode")
+			return nil, fmt.Errorf("--transport %s cannot be combined with --qrcode", c.Options.Transport)
 		}
 	}
 
@@ -794,6 +823,7 @@ func (c *Client) resetForReconnectAttempt(attempt int) error {
 	c.tailcat.offerReceived = false
 	c.transportSelectionReceived = false
 	c.selectedDataTransport.Store(selectedTransportUnset)
+	c.sendingFileData.Store(false)
 	c.relayStandbyMu.Lock()
 	c.relayStandbyReady = false
 	c.relayStandbyMu.Unlock()
@@ -1512,12 +1542,12 @@ func (c *Client) transferOverLocalRelay(errchan chan<- error) {
 		c.Options.RelayPorts = []string{c.Options.RelayPorts[0]}
 	}
 	c.markSenderRouteReady()
-	errchan <- c.transferWithReconnect(func(attempt int) error {
+	errchan <- connectedRouteResult(c.transferWithReconnect(func(attempt int) error {
 		if attempt == 0 {
 			return nil
 		}
 		return c.senderReconnectRelayAttempt(attempt)
-	})
+	}))
 }
 
 func (c *Client) senderWaitForHandshake(conn *comm.Comm) error {
@@ -1669,6 +1699,30 @@ func receiveControlFrame(conn *comm.Comm) ([]byte, error) {
 	}
 }
 
+// connectedRouteError marks the result of a sender route that the receiver
+// joined. The receiver uses only that route, so its failure ends the send even
+// though the other route is still waiting.
+type connectedRouteError struct{ err error }
+
+func (e connectedRouteError) Error() string { return e.err.Error() }
+func (e connectedRouteError) Unwrap() error { return e.err }
+
+func connectedRouteResult(err error) error {
+	if err == nil {
+		return nil
+	}
+	return connectedRouteError{err: err}
+}
+
+// senderRouteError removes the connectedRouteError marker and reports whether
+// it was present.
+func senderRouteError(err error) (error, bool) {
+	if connected, ok := errors.AsType[connectedRouteError](err); ok {
+		return connected.err, true
+	}
+	return err, false
+}
+
 func isFatalSenderRouteError(err error) bool {
 	if err == nil {
 		return false
@@ -1800,7 +1854,7 @@ func (c *Client) Send(filesInfo []FileInfo, emptyFoldersToTransfer []FileInfo, t
 		flags.WriteString("--pass " + c.Options.RelayPassword + " ")
 	}
 	webURL := ""
-	if c.Options.Transport != TransportDERP {
+	if !c.Options.Transport.requiresTailcat() {
 		webURL = webReceiveURL(c.Options.SharedSecret)
 	}
 	clipboardNotice := ""
@@ -1874,12 +1928,12 @@ func (c *Client) Send(filesInfo []FileInfo, emptyFoldersToTransfer []FileInfo, t
 			}
 			log.Debug("exchanged header message")
 			c.markSenderRouteReady()
-			errchan <- c.transferWithReconnect(func(attempt int) error {
+			errchan <- connectedRouteResult(c.transferWithReconnect(func(attempt int) error {
 				if attempt == 0 {
 					return nil
 				}
 				return c.senderReconnectRelayAttempt(attempt)
-			})
+			}))
 		}()
 	} else {
 		c.markExternalIPReady()
@@ -1895,18 +1949,18 @@ func (c *Client) Send(filesInfo []FileInfo, emptyFoldersToTransfer []FileInfo, t
 	}
 	if err == nil {
 		return // no error
-	} else {
-		log.Debugf("error from errchan: %v", c.redactError(err))
-		if strings.Contains(err.Error(), "could not secure channel") {
-			return err
-		}
 	}
-	if !c.Options.DisableLocal {
+	err, connected := senderRouteError(err)
+	log.Debugf("error from errchan: %v", c.redactError(err))
+	if strings.Contains(err.Error(), "could not secure channel") {
+		return err
+	}
+	if !c.Options.DisableLocal && !connected {
 		if isFatalSenderRouteError(err) {
 			return err
 		}
 		log.Debugf("waiting for alternate sender route after: %v", c.redactError(err))
-		err = c.waitForAlternateSenderRoute(errchan, err)
+		err, _ = senderRouteError(c.waitForAlternateSenderRoute(errchan, err))
 	}
 	return err
 }
@@ -3038,6 +3092,7 @@ func (c *Client) processMessage(payload []byte, attempt *transferAttemptState) (
 		log.Debugf("current file has %d requested chunks", c.CurrentFileChunkCount)
 		c.updateLifecycle(func(state *transferLifecycle) { state.RecipientRequested = true })
 		c.markTransferStarted()
+		c.sendingFileData.Store(false)
 
 		if c.Options.Ask {
 			output, colorEnabled := termui.Output(os.Stderr)
@@ -3061,7 +3116,9 @@ func (c *Client) processMessage(payload []byte, attempt *transferAttemptState) (
 				return
 			}
 		}
+		c.sendingFileData.Store(true)
 	case message.TypeCloseSender:
+		c.sendingFileData.Store(false)
 		c.finishProgress()
 		log.Debug("close-sender received...")
 		c.updateLifecycle(func(state *transferLifecycle) {
