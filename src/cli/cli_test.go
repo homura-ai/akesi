@@ -1338,4 +1338,3 @@ func TestSTUNServersFlag(t *testing.T) {
 		})
 	}
 }
-

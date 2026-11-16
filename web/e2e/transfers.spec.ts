@@ -875,6 +875,34 @@ for (const secret of [
   });
 }
 
+test("CLI → Web transfers directly with a zero direct threshold", async ({ page }, testInfo) => {
+  const fixtures = await createFixtures(testInfo);
+  const configDirectory = testInfo.outputPath("croc-config");
+  const secret = "webrtc-direct-threshold";
+  await fs.mkdir(configDirectory, { recursive: true });
+  await configurePage(page);
+  await page.goto(`/?code=${encodeURIComponent(secret)}`);
+  const receivePanel = page.locator(".receive-panel");
+  const cli = runCroc(
+    ["--debug", ...commonCLIArgs(), "send", "--no-local", "--direct-threshold", "0", ...fixtures.paths],
+    secret,
+    configDirectory,
+  );
+  try {
+    const downloads = await acceptAsDownloads(page, receivePanel);
+    await expect(receivePanel).toContainText("All files received and verified", {
+      timeout: transferTimeout,
+    });
+    await cli.done;
+    await expectDownloads(downloads, fixtures);
+    expect(cli.output()).toContain("selected WebRTC data transport");
+    expect(cli.output()).not.toContain("selected croc relay data transport");
+  } finally {
+    cli.stop();
+    await cli.done.catch(() => undefined);
+  }
+});
+
 test("CLI → Web preserves nested directory destinations and empty folders", async ({
   page,
 }, info) => {
