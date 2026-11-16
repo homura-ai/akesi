@@ -9,7 +9,7 @@
   <strong>This project’s future depends on community support. <a href="https://meowc.at">Become a sponsor today</a>.</strong>
 </p>
 
-TODO: Update
+TODO: Update readme
 
 ## About
 
