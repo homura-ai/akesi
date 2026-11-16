@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"sync"
 	"time"
 
 	internalcli "github.com/schollz/croc/v11/internal/cli"
@@ -124,16 +125,29 @@ func (checker transferVersionChecker) start(parent context.Context, force bool) 
 	}
 	ctx, cancel := context.WithTimeout(parent, checker.timeout)
 	result := make(chan versionCheckResult, 1)
+	var cacheMu sync.Mutex
+	finished := false
+	stop := func() {
+		cancel()
+		// Join only an in-progress cache write, never the network request.
+		cacheMu.Lock()
+		finished = true
+		cacheMu.Unlock()
+	}
 	go func() {
 		latest, err := checker.fetchLatest(ctx)
 		cached := versionCheckCache{CheckedAt: checker.now().UTC()}
 		if err == nil {
 			cached.LatestVersion = latest
 		}
-		_ = writeVersionCheckCache(checker.cachePath, cached)
+		cacheMu.Lock()
+		if !finished {
+			_ = writeVersionCheckCache(checker.cachePath, cached)
+		}
+		cacheMu.Unlock()
 		result <- versionCheckResult{latestVersion: cached.LatestVersion}
 	}()
-	return versionCheckHandle{cancel: cancel, result: result}
+	return versionCheckHandle{cancel: stop, result: result}
 }
 
 func (checker transferVersionChecker) freshCache() (versionCheckCache, bool) {

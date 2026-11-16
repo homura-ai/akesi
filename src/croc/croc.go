@@ -254,19 +254,19 @@ type Client struct {
 	dataAEAD               cipher.AEAD
 
 	// tcp connections
-	connectionsMu            sync.RWMutex
-	conn                     []*comm.Comm
-	baseRoomName             string
-	pakePassphrase           string
-	pakeInitiator            []byte
-	pakeResponder            []byte
-	pakeCurve                string
-	pakeKeys                 pakekey.Keys
-	pakeConfirmationPending  bool
-	nextReconnectRoom        string
+	connectionsMu           sync.RWMutex
+	conn                    []*comm.Comm
+	baseRoomName            string
+	pakePassphrase          string
+	pakeInitiator           []byte
+	pakeResponder           []byte
+	pakeCurve               string
+	pakeKeys                pakekey.Keys
+	pakeConfirmationPending bool
+	nextReconnectRoom       string
 	// redactMu guards the room names that redactError reads from other
 	// goroutines while a route's transfer updates them.
-	redactMu sync.Mutex
+	redactMu                 sync.Mutex
 	relayControlAddress      string
 	relayCapability          string
 	relayControlPeerToPeer   bool
