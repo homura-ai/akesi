@@ -18,6 +18,16 @@ helper owns the commit, push, and pull-request workflow.
 GitHub Actions and release operations continue to use the GitHub CLI (`gh`) as
 documented below.
 
+## Waiting on long-running work
+
+When waiting for a build, test run or other background job to finish, wait on
+something the job itself produces: its exit status (`wait PID`), or a
+completion file it writes when done. Always give the wait a timeout.
+
+Never poll with `pgrep -f PATTERN` (or `ps | grep PATTERN`) from a shell whose
+own command line contains PATTERN. The wait loop then matches itself and never
+sees the job end.
+
 ## Releasing croc
 
 Releases are prepared by the **Prepare Release** GitHub Actions workflow. Do not
