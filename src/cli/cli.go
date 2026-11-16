@@ -714,12 +714,12 @@ func send(c *cli.Context) (err error) {
 	if c.IsSet("direct-threshold") && crocOptions.Transport != croc.TransportAuto {
 		return errors.New("--direct-threshold only applies to --transport auto")
 	}
+	if crocOptions.OnlyLocal && crocOptions.Transport != croc.TransportAuto {
+		return errors.New("--transport must be auto for local-only transfers")
+	}
 	downgradedTransport, err := resolveSendTransport(&crocOptions)
 	if err != nil {
 		return err
-	}
-	if crocOptions.OnlyLocal && crocOptions.Transport != croc.TransportAuto {
-		return errors.New("--transport must be auto for local-only transfers")
 	}
 	if crocOptions.ShowQrCode && (crocOptions.Transport == croc.TransportDERP || crocOptions.Transport == croc.TransportDirect) {
 		return fmt.Errorf("--transport %s cannot be combined with --qrcode", crocOptions.Transport)
