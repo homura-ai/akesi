@@ -342,8 +342,8 @@ croc send --code [code-phrase] [file(s)-or-folder]
 ```
 
 For default public transfers, SHA-256 of the exact code modulo the ordered
-three-relay pool determines which deployment both peers use. An automatically
-generated sender probes all three relays and generates a normal EFF code that
+four-relay pool determines which deployment both peers use. An automatically
+generated sender probes all four relays and generates a normal EFF code that
 maps to the first healthy one to respond. A custom code maps directly without probing
 or fallback. `--relay`, `CROC_RELAY`, `--ip`, and local-only transfers bypass
 this public routing rule. The generated sender caches the winning address in
@@ -442,6 +442,13 @@ client uses the browser's proxy settings for its WebSocket gateway connection;
 the native CLI flag does not configure the browser.
 
 ### Data transport selection
+
+Transport flags belong to `send`, for example:
+
+```bash
+croc send --transport direct [file(s)-or-folder]
+croc send --direct-threshold 16MiB [file(s)-or-folder]
+```
 
 The native CLI defaults to `--transport auto`. After the normal three-word-code
 PAKE handshake, two compatible native clients create PAKE-bound Tailcat node
