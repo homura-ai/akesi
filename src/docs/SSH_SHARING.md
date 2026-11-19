@@ -93,11 +93,6 @@ croc ssh --reconnect-window 10m
 croc ssh --no-reconnect
 ```
 
-Clients that predate SSH sharing receive an authenticated upgrade message
-instead of waiting indefinitely at `securing channel...`; SSH sharing requires
-croc v11.4.0 or newer. Other SSH wire incompatibilities are likewise returned
-through the encrypted control channel.
-
 Transport selection defaults to `auto`: try Tailcat (direct UDP with DERP
 fallback), then reauthenticate over the ordinary croc relay only if Tailcat was
 authorized but could not attach the SSH connection. Relay admission limits are

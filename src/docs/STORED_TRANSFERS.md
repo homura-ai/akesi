@@ -20,9 +20,6 @@ croc store --downloads 3 photo.jpg document.pdf
 croc store --expiration 3d photo.jpg document.pdf
 ```
 
-The original `croc send --store` command remains supported with
-`--store-downloads`, `--store-expiration`, and `--store-url`.
-
 Use another service origin when self-hosting:
 
 ```bash
@@ -51,12 +48,9 @@ one allowed download. Its partial state allows completed chunks to resume.
 
 The web client performs the same inspection before asking the user to accept.
 Stored encryption and decryption use native Web Crypto; streaming SHA-256 runs
-in a small JavaScript worker. Store operations do not download or initialize
-the Go WebAssembly runtime retained for SSH transport. Direct files and text
-also use native browser primitives.
-It writes through the File System Access API where available. Otherwise a
-service worker streams the download without keeping the complete file in page
-memory. Blob fallback is limited to 256 MiB; for larger files on browsers that
+in a small JavaScript worker. The browser writes through the File System Access
+API where available. Otherwise a service worker streams the download without
+keeping the complete file in page memory. Blob fallback is limited to 256 MiB; for larger files on browsers that
 support neither streaming path, the UI directs the recipient to the CLI.
 
 The sender can revoke a transfer while it remains available:
@@ -175,8 +169,7 @@ flags override them. Expiration values use whole `m`, `h`, `d`, or `w` units,
 must be at least one minute, and are silently reduced when they exceed the
 server maximum. An empty or `0` server maximum permits any finite representable
 lifetime. The accepted lifetime is stored when the transfer is created, so a
-later policy change does not alter it. Legacy metadata retains the one-day
-default.
+later policy change does not alter it.
 
 Upload controls also accept `CROC_STORE_CREATE_RATE`,
 `CROC_STORE_ACTIVE_UPLOADS`, `CROC_STORE_UPLOAD_TIMEOUT`, and
@@ -222,10 +215,8 @@ The HTTP API is versioned at `/api/v1/store/transfers`. It is an implementation
 boundary for the official croc web and CLI clients, not a promise that
 unversioned internals will remain compatible. Create declarations may include
 `expiresSeconds`; omitting it preserves the one-day client default, while a
-configured maximum may silently clamp the accepted value. The accepted
-lifetime is not added to the create response so strict older clients retain
-their response shape. The existing completion response reports the final
-absolute `expiresAt`.
+configured maximum may silently clamp the accepted value. The completion
+response reports the final absolute `expiresAt`.
 
 Browser runtime configuration exposes `expiresSeconds` as the effective
 default and `maxExpiresSeconds` as the policy ceiling. A zero maximum means no

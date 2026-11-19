@@ -37,8 +37,9 @@ Homebrew build the tagged source and require it to contain the release version.
 1. Open **Actions → Prepare Release → Run workflow** on the default branch.
 2. Enter a stable semantic-version tag such as `v11.2.5`.
 3. Wait for every job to succeed. The workflow stamps `src/version/version.go`,
-   commits it, creates the annotated tag, builds and signs all artifacts, and
-   creates a draft GitHub release containing those artifacts and their checksums.
+   commits it, creates the annotated tag, builds the artifacts, signs the
+   Windows 64-bit executable, and creates a draft GitHub release containing
+   the artifacts and their checksums.
 4. Review the generated notes and asset list, then publish the draft release.
 
 Publishing the draft triggers the Docker workflow. A failed workflow may be
