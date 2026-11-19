@@ -9,8 +9,6 @@
   <strong>This project’s future depends on community support. <a href="https://meowc.at">Become a sponsor today</a>.</strong>
 </p>
 
-TODO: Update readme
-
 ## About
 
 `croc` is a tool that allows any two computers to simply and securely transfer files and folders. AFAIK, _croc_ is the only CLI file-transfer tool that does **all** of the following:
@@ -23,8 +21,6 @@ TODO: Update readme
 - No need for local server or port-forwarding
 - **IPv6-first** with IPv4 fallback
 - Can **use a proxy**, like Tor
-
-For more information about `croc`, see [my blog post](https://schollz.com/tinker/croc6/) or read a [recent interview I did](https://console.substack.com/p/console-91).
 
 ![Example](src/install/customization.gif)
 
@@ -107,8 +103,7 @@ apk add croc
 ```
 
 Check the [Alpine package index](https://pkgs.alpinelinux.org/packages?name=croc)
-for your branch's version. Stable branches can carry older releases; see the
-[distribution status](packaging/distributions/status.md) before selecting one.
+for your branch's version.
 
 ### On Debian and Ubuntu
 
@@ -126,10 +121,6 @@ Replace `VERSION` and `ARCH` below with the downloaded filename:
 ```bash
 sudo apt install ./croc_VERSION-1_ARCH.deb
 ```
-
-This downloaded-package method also applies to older Debian and Ubuntu releases
-that do not provide croc in their configured repositories. It does not add an APT
-repository; download a newer package to upgrade it.
 
 ### On Fedora and openSUSE
 
@@ -198,17 +189,17 @@ You can also just paste it in the terminal for current session. On first run Doc
 
 ### Build from Source
 
-If you prefer, you can [install Go](https://go.dev/dl/) and build from source (requires Go 1.27.1+):
+To install the CLI from this checkout, run the following with [Go 1.27.1 or newer](https://go.dev/dl/):
 
 ```bash
-go install github.com/schollz/croc/v11@latest
+go install .
 ```
 
 ### On Android
 
 There are F-Droid apps available:
 
-- [crocgui](https://f-droid.org/packages/com.github.howeyc.crocgui/) — original port (Go, basic UI)
+- [crocgui](https://f-droid.org/packages/com.github.howeyc.crocgui/) — Go client with a basic UI
 - [croc-app](https://f-droid.org/en/packages/com.dking.crocapp/) — native Kotlin/Jetpack Compose client with a modern, mobile-first interface
 - [FlCroc](https://github.com/576576/FlCroc) — cross-platform Flutter GUI (Android, Windows, Linux) that wraps the `croc` binary as its transfer core.
 
@@ -284,9 +275,6 @@ croc store --downloads 3 --expiration 3d [file1] [file2]
 croc store --url https://files.example.com [file1] [file2]
 ```
 
-The original `croc send --store` syntax remains supported, with
-`--store-downloads`, `--store-expiration`, and `--store-url` settings.
-
 The command prints a browser link and a CLI token. The transfer expires after
 the selected lifetime, measured from successful upload completion, or after
 its configured number of receivers download, authenticate, and verify every
@@ -313,9 +301,8 @@ saved revoke receipt:
 croc --revoke [transfer-id]
 ```
 
-Stored mode is opt-in and separate from croc's normal live relay transfers. A
-self-hosted service can be selected with `croc store --url` (or
-`croc send --store --store-url`) or `CROC_STORE_URL`.
+Stored mode is opt-in and separate from croc's normal live relay transfers. To
+use a self-hosted service, pass `croc store --url` or set `CROC_STORE_URL`.
 See [the stored-transfer design and operator guide](src/docs/STORED_TRANSFERS.md)
 for protocol, privacy, limits, and deployment details.
 
@@ -454,13 +441,12 @@ The native CLI defaults to `--transport auto`. After the normal three-word-code
 PAKE handshake, two compatible native clients create PAKE-bound Tailcat node
 identities and open one or more TCP streams over an in-process Tailscale
 userspace WireGuard network. Magicsock starts through DERP and promotes the
-connection to a direct UDP path whenever NAT traversal succeeds. If the peer is
-an older client, or Tailcat setup fails, both clients use croc's existing relay
-data ports. Auto mode tries Tailcat or WebRTC for transfers of at least 128 MiB;
-smaller ones use the croc relay. Change that with `--direct-threshold`, for
-example `--direct-threshold 0` to try a direct path for every transfer or
-`--direct-threshold 16MiB`. The public spelling `--transport derp` is retained;
-in strict mode it requires Tailcat support and disables croc-relay fallback.
+connection to a direct UDP path whenever NAT traversal succeeds. Auto mode
+tries Tailcat or WebRTC for transfers of at least 128 MiB. It uses the croc
+relay for smaller transfers or when Tailcat or WebRTC setup fails. Set
+`--direct-threshold` to change the threshold, or use `--direct-threshold 0` to
+try a direct path for every transfer. `--transport derp` requires Tailcat
+support and disables croc-relay fallback.
 
 `--transport direct` keeps file data off every third party. It uses Tailcat
 for transfers of any size, waits until magicsock confirms a direct UDP path to
@@ -508,7 +494,7 @@ Browsers cannot use Tailcat, so with a browser peer croc tries a direct WebRTC
 connection instead. The sender offers four data channels over the encrypted
 control channel; if they open, file data travels directly and keeps croc's own
 encryption on top of WebRTC's. Only STUN is used, never a TURN relay, so when
-no direct path exists the transfer falls back to the croc relay as before. A
+no direct path exists the transfer falls back to the croc relay. A
 browser sender always tries WebRTC; a CLI sender follows the same size
 threshold as Tailcat. STUN servers only learn each peer's public address; the
 CLI's `--stun` flag (or `CROC_STUN`) and croc-web's `--stun` flag choose them,
@@ -658,14 +644,10 @@ disco env:set \
 ```
 
 `SITE_URL` must be the public website hostname without `https://`. Change the
-project name if it is not `croc`. The `web` service mounts the named
-`croc-store` volume at `/www/croc/storage`, which is also its configured
-`--store-dir`, so stored ciphertext and metadata survive container replacement
-and redeployment. The `web` service also reserves published TCP port 9020 and
-maps it to unused container port 65535. This deliberate port collision makes
-Disco stop the previous volume-owning web service before starting its
-replacement, avoiding concurrent access to the store. Port 9020 carries no
-application traffic and should remain blocked by the server firewall.
+project name if it is not `croc`. The `web` service stores ciphertext and
+metadata on the persistent `croc-store` volume mounted at `/www/croc/storage`.
+Disco uses reserved TCP port 9020 to give one web instance access to the volume
+at a time. Keep port 9020 blocked by the server firewall.
 
 Stored-upload policy can be set per deployment without editing `disco.json`:
 
@@ -701,7 +683,7 @@ the server's firewall or cloud security group.
 
 ## Acknowledgements
 
-`croc` has evolved through many iterations, and I am thankful for the contributions! Special thanks to:
+Thanks to everyone who contributed.
 
 - [@warner](https://github.com/warner) for the [idea](https://github.com/magic-wormhole/magic-wormhole)
 - [@tscholl2](https://github.com/tscholl2) for the [encryption gists](https://gist.github.com/tscholl2/dc7dc15dc132ea70a98e8542fefffa28)
